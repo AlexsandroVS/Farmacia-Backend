@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Gestión de Farmacia</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-50 font-sans leading-normal tracking-normal">
+
+    <!-- Navbar -->
+    <nav class="bg-sky-950 text-white p-4">
+        <div class="container mx-auto flex justify-between items-center">
+            <a href="#" class="text-2xl font-bold">Farmavida</a>
+            <ul class="flex space-x-6">
+                <li><a href="#features" class="hover:text-gray-200">Características</a></li>
+                <li><a href="#about" class="hover:text-gray-200">Sobre Nosotros</a></li>
+                <li><a href="#contact" class="hover:text-gray-200">Contacto</a></li>
+                <li><a href="#register" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">Regístrate</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="bg-green-500 text-white py-20" id="hero">
+        <div class="container mx-auto text-center">
+            <h1 class="text-4xl md:text-5xl font-bold mb-4">Sistema de Gestión de Farmacia</h1>
+            <p class="text-lg mb-6">Optimiza la gestión de tu farmacia con nuestra plataforma todo-en-uno</p>
+            <a href="#register" class="bg-blue-600 text-white px-6 py-3 rounded-lg text-xl hover:bg-blue-700">Comienza ahora</a>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section class="py-20" id="features">
+        <div class="container mx-auto text-center">
+            <h2 class="text-3xl font-bold mb-6">Características del Sistema</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-12">
+                <div class="bg-white p-6 rounded-lg shadow-lg hover:shadow-xl transition duration-300">
+                    <h3 class="text-2xl font-semibold mb-3">Gestión de Inventario</h3>
+                    <p>Control total sobre el inventario de productos y medicamentos. Actualiza y lleva el registro en tiempo real.</p>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow-lg hover:shadow-xl transition duration-300">
+                    <h3 class="text-2xl font-semibold mb-3">Ventas y Facturación</h3>
+                    <p>Genera facturas de manera rápida y eficiente. Facilita las ventas con un sistema de pago integrado.</p>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow-lg hover:shadow-xl transition duration-300">
+                    <h3 class="text-2xl font-semibold mb-3">Reportes y Análisis</h3>
+                    <p>Obtén informes detallados sobre ventas, productos, y más, para tomar decisiones basadas en datos.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- About Us Section -->
+    <section class="bg-gray-100 py-20" id="about">
+        <div class="container mx-auto text-center">
+            <h2 class="text-3xl font-bold mb-6">Sobre Nosotros</h2>
+            <p class="text-lg mb-6">En Farmavida nos dedicamos a facilitar la gestión de tu farmacia mediante soluciones digitales modernas y eficientes. Nuestro sistema está diseñado para adaptarse a las necesidades de tu negocio, brindándote el control total.</p>
+        </div>
+    </section>
+
+    <!-- Contact Section -->
+    <section class="py-20" id="contact">
+        <div class="container mx-auto text-center">
+            <h2 class="text-3xl font-bold mb-6">Contacto</h2>
+            <p class="text-lg mb-6">¿Tienes preguntas? Estamos aquí para ayudarte.</p>
+            <a href="mailto:contacto@farmavida.com" class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700">Envíanos un correo</a>
+        </div>
+    </section>
+
+    <!-- Registration Section -->
+    <section class="bg-green-600 text-white py-20" id="register">
+        <div class="container mx-auto text-center">
+            <h2 class="text-3xl font-bold mb-6">Regístrate y Comienza Hoy</h2>
+            <p class="text-lg mb-6">Empieza a gestionar tu farmacia de manera eficiente con nuestra plataforma.</p>
+            <a href="http://localhost:8000/api/v1/register/" class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700">Crear Cuenta</a>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800 text-white py-6">
+        <div class="container mx-auto text-center">
+            <p>&copy; 2024 Farmavida. Todos los derechos reservados.</p>
+        </div>
+    </footer>
+
+</body>
+</html>

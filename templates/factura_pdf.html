@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <title>Factura</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .details {
+            margin: 20px 0;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        table, th, td {
+            border: 1px solid #000;
+        }
+
+        th, td {
+            padding: 8px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f2f2f2;
+        }
+
+        .totals {
+            margin-top: 20px;
+            text-align: right;
+        }
+
+        .totals p {
+            font-size: 16px;
+            font-weight: bold;
+        }
+
+        .totals .subtotal, .totals .igv, .totals .total {
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>FACTURA</h1>
+        <p>PharmaVida.</p>
+        <p>Manuel Seoane 970</p>
+        <p>Nº de Factura: ES-{{ factura.id }}</p>
+        <p>Fecha: {{ factura.fecha }}</p>
+        <p>Nº de Pedido: {{ numero_pedido }}</p>
+        <p>Fecha Vencimiento: {{ factura.fecha }}</p>
+    </div>
+
+    <div class="details">
+        <h3>Facturar A:</h3>
+        <p>{{ nombre_cliente }}</p>
+        <p>{{ direccion_cliente }}</p>
+        <p>DNI: {{ dni_cliente }}</p>
+    </div>
+
+    <div class="details">
+        <h3>Enviar A:</h3>
+        <p>{{ direccion_cliente }}</p>
+    </div>
+
+    <h3>Detalles de la Factura:</h3>
+    <table>
+        <tr>
+            <th>Producto</th>
+            <th>Cantidad</th>
+            <th>Precio Unitario</th>
+            <th>Subtotal</th>
+        </tr>
+        {% for detalle in detalles %}
+        <tr>
+            <td>{{ detalle.producto.nombre }}</td>
+            <td>{{ detalle.cantidad }}</td>
+            <td>{{ detalle.precio_unitario }}</td>
+            <td>{{ detalle.subtotal }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+
+    <div class="totals">
+      <br>
+        <p class="subtotal">Subtotal : {{ factura.subtotal }}</p>
+        <p class="igv">IGV (18%): {{ factura.igv }}</p>
+        <p class="total">Total con IGV: {{ factura.total }}</p>
+    </div>
+</body>
+</html>

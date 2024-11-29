@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            margin: 20px;
+        }
+        h1, h2 {
+            color: #333;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f4f4f4;
+        }
+        .summary-table td {
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>Reporte General</h1>
+
+    <h2>Totales</h2>
+    <table class="summary-table">
+        <tr>
+            <th>Total Facturado</th>
+            <th>Total IGV</th>
+            <th>Total Subtotal</th>
+            <th>Gasto Pedidos</th>
+            <th>Ganancia Neta</th>
+        </tr>
+        <tr>
+            <td>S/.{{ reporte.total_facturado | floatformat:2 }}</td>
+            <td>S/.{{ reporte.total_igv | floatformat:2 }}</td>
+            <td>S/.{{ reporte.total_subtotal | floatformat:2 }}</td>
+            <td>S/.{{ reporte.total_pedidos | floatformat:2}}</td>
+            <td>S/.{{ reporte.ganancia_neta|floatformat:2 }}</td>
+        </tr>
+    </table>
+
+    <h2>Productos Vendidos</h2>
+    <table>
+        <tr>
+            <th>Producto</th>
+            <th>Cantidad Vendida</th>
+            <th>Precio Unitario</th>
+            <th>IGV</th>
+            <th>Total</th>
+        </tr>
+        {% for producto in reporte.productos_vendidos %}
+        <tr>
+            <td>{{ producto.producto.nombre }}</td>
+            <td>{{ producto.total_vendido }}</td>
+            <td>S/.{{ producto.producto.precio }}</td>
+            <td>S/.{{ producto.igv | floatformat:2}}</td>
+            <td>S/.{{ producto.total | floatformat:2}}</td>
+        </tr>
+        {% endfor %}
+    </table>
+
+    <h2>Proveedores</h2>
+    <table>
+        <tr>
+            <th>Nombre</th>
+            <th>Total Pedidos</th>
+            <th>Monto Total (S/.)</th>
+        </tr>
+        {% for proveedor in reporte.proveedores %}
+        <tr>
+            <td>{{ proveedor.nombre }}</td>
+            <td>{{ proveedor.total_pedidos }}</td>
+            <td>S/.{{ proveedor.monto_total|floatformat:2 }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</body>
+</html>

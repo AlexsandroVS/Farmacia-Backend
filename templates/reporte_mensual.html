@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Reporte Mensual</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+        }
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        .table th, .table td {
+            border: 1px solid #ddd;
+            padding: 8px;
+        }
+        .table th {
+            background-color: #f4f4f4;
+        }
+    </style>
+</head>
+<body>
+    <h1>Reporte Mensual - {{ mes }}/{{ anio }}</h1>
+    <h2>Resumen</h2>
+    <p><strong>Total Facturado:</strong> S/. {{ reporte.total_facturado }}</p>
+    <p><strong>Total IGV:</strong> S/. {{ reporte.total_igv }}</p>
+    <p><strong>Total Subtotal:</strong> S/. {{ reporte.total_subtotal }}</p>
+    <p><strong>Total Pedidos:</strong> S/. {{ reporte.total_pedidos }}</p>
+    <p><strong>Total Pedidos Realizados:</strong> {{ reporte.total_pedidos_count }}</p>
+
+    <h2>Productos Vendidos</h2>
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Producto</th>
+                <th>Total Vendido</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for producto in reporte.productos_vendidos %}
+            <tr>
+                <td>{{ producto.producto__nombre }}</td>
+                <td>{{ producto.total_vendido }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <h2>Proveedores</h2>
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Proveedor</th>
+                <th>Total Pedidos</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for proveedor in reporte.proveedores %}
+            <tr>
+                <td>{{ proveedor.proveedor__nombre }}</td>
+                <td>S/. {{ proveedor.total_pedidos|floatformat:2 }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>
