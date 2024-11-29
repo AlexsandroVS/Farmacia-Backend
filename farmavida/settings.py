@@ -96,7 +96,7 @@ WSGI_APPLICATION = 'farmavida.wsgi.application'
 
 
 DATABASES = {
-    'default': dj_database_url.config(default='postgresql://pharmavida_user:Ztn1S26xqatiNgUFxEEkEq314ti80r3v@dpg-ct1a66m8ii6s73fe1ns0-a.oregon-postgres.render.com/pharmavida', conn_max_age=600),
+    'default': dj_database_url.config(default='postgresql://farmavida_post_user:2rIWbAMDUTwpiWC3vmKmzOIJX0w10SpH@dpg-ct4uk4popnds73d4g3u0-a/farmavida_post', conn_max_age=600),
 }
 
 

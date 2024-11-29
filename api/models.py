@@ -12,6 +12,17 @@ def get_default_user():
         defaults={'last_login': timezone.now()}  # Set current time as default last_login
     )
     return user.id  # Devuelve solo el ID del usuario en lugar del objeto completo
+def get_default_empleado():
+    # Assuming you already have an Empleado with ID 1, or create one beforehand
+    empleado, created = Empleado.objects.get_or_create(
+        persona_id=1,  # Replace with the ID of a default persona if needed
+        defaults={
+            'cargo': 'default',
+            'fecha_contratacion': timezone.now(),
+            'salario': 0.00
+        }
+    )
+    return empleado.id
 
 class Persona(models.Model):
     nombre = models.CharField(max_length=100)
@@ -83,7 +94,7 @@ class Medicamento(models.Model):
         return self.producto.nombre
 
 class Factura(models.Model):
-    empleado = models.ForeignKey(Empleado, on_delete=models.CASCADE)
+    empleado = models.ForeignKey(Empleado, on_delete=models.CASCADE, default=get_default_empleado)
     fecha = models.DateField()
     cliente = models.ForeignKey(Clientes, on_delete=models.CASCADE)
     total = models.DecimalField(max_digits=10, decimal_places=2, default=0)
