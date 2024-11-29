@@ -2,6 +2,8 @@ from django.contrib.auth.models import User  # type: ignore
 from django.db import models  # type: ignore
 from django.utils import timezone
 from django.db.models import Sum
+import cloudinary
+from cloudinary.uploader import upload
 
 def get_default_user():
     user, created = User.objects.get_or_create(
@@ -66,7 +68,7 @@ class Producto(models.Model):
     fecha_vencimiento = models.DateField()
     proveedor = models.ForeignKey(Proveedor, on_delete=models.CASCADE)
     categoria = models.ForeignKey(Categoria, on_delete=models.CASCADE)
-    imagen = models.ImageField(upload_to='productos/', default='default_image.jpg')
+    imagen = models.URLField(max_length=500, blank=True, null=True)
     stock = models.PositiveIntegerField(default=0)
     precio = models.DecimalField(max_digits=10, decimal_places=2, default=0)
 

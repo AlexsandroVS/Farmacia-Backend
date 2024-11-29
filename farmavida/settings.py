@@ -2,6 +2,9 @@ import os
 from pathlib import Path
 from datetime import timedelta
 import dj_database_url
+import cloudinary
+import cloudinary.uploader
+import cloudinary.api
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -11,7 +14,12 @@ SIMPLE_JWT = {
     'ROTATE_REFRESH_TOKENS': True,                  
     'BLACKLIST_AFTER_ROTATION': True,               
 }
-
+cloudinary.config(
+    cloud_name='dkioxoqot',  # Tu cloud name de Cloudinary
+    api_key='446438352929434',  # Tu API key de Cloudinary
+    api_secret=os.environ.get('CLOUDINARY_API_SECRET'),  # Tu API secret de Cloudinary desde las variables de entorno
+    secure=True
+)
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.environ.get('SECRET_KEY', default="dks234asd")
 
