@@ -2,9 +2,9 @@ import os
 from pathlib import Path
 from datetime import timedelta
 import dj_database_url
-import cloudinary
-import cloudinary.uploader
-import cloudinary.api
+import cloudinary # type: ignore
+import cloudinary.uploader # type: ignore
+import cloudinary.api # type: ignore
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -24,7 +24,7 @@ cloudinary.config(
 SECRET_KEY = os.environ.get('SECRET_KEY', default="dks234asd")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = 'RENDER' not in os.environ
+DEBUG = True
 
 ALLOWED_HOSTS = []
 RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
@@ -96,10 +96,7 @@ WSGI_APPLICATION = 'farmavida.wsgi.application'
 
 
 DATABASES = {
-    'default': dj_database_url.config(
-        default='postgresql://farmavida_post_user:2rIWbAMDUTwpiWC3vmKmzOIJX0w10SpH@dpg-ct4uk4popnds73d4g3u0-a.oregon-postgres.render.com/farmavida_post',
-        conn_max_age=600
-    ),
+    'default': dj_database_url.config(default=os.getenv('DATABASE_URL'), conn_max_age=600),
 }
 # Password validation
 # https://docs.djangoproject.com/en/5.1/ref/settings/#auth-password-validators
