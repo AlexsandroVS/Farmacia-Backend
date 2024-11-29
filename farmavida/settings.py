@@ -2,9 +2,9 @@ import os
 from pathlib import Path
 from datetime import timedelta
 import dj_database_url
-import cloudinary # type: ignore
-import cloudinary.uploader # type: ignore
-import cloudinary.api # type: ignore
+    
+
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -14,17 +14,12 @@ SIMPLE_JWT = {
     'ROTATE_REFRESH_TOKENS': True,                  
     'BLACKLIST_AFTER_ROTATION': True,               
 }
-cloudinary.config(
-    cloud_name='dkioxoqot',  # Tu cloud name de Cloudinary
-    api_key='446438352929434',  # Tu API key de Cloudinary
-    api_secret=os.environ.get('CLOUDINARY_API_SECRET'),  # Tu API secret de Cloudinary desde las variables de entorno
-    secure=True
-)
+
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.environ.get('SECRET_KEY', default="dks234asd")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = 'RENDER' not in os.environ
 
 ALLOWED_HOSTS = []
 RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
@@ -52,6 +47,8 @@ INSTALLED_APPS = [
     'drf_yasg',
     'corsheaders',
     'rest_framework_simplejwt',
+    'cloudinary_storage',
+    'cloudinary',
 ]
 
 MIDDLEWARE = [
@@ -96,8 +93,12 @@ WSGI_APPLICATION = 'farmavida.wsgi.application'
 
 
 DATABASES = {
-    'default': dj_database_url.config(default=os.getenv('DATABASE_URL'), conn_max_age=600),
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
+    }
 }
+
 # Password validation
 # https://docs.djangoproject.com/en/5.1/ref/settings/#auth-password-validators
 
