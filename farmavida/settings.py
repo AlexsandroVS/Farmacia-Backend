@@ -96,10 +96,11 @@ WSGI_APPLICATION = 'farmavida.wsgi.application'
 
 
 DATABASES = {
-    'default': dj_database_url.config(default='postgresql://farmavida_post_user:2rIWbAMDUTwpiWC3vmKmzOIJX0w10SpH@dpg-ct4uk4popnds73d4g3u0-a/farmavida_post', conn_max_age=600),
+    'default': dj_database_url.config(
+        default='postgresql://farmavida_post_user:2rIWbAMDUTwpiWC3vmKmzOIJX0w10SpH@dpg-ct4uk4popnds73d4g3u0-a.oregon-postgres.render.com/farmavida_post',
+        conn_max_age=600
+    ),
 }
-
-
 # Password validation
 # https://docs.djangoproject.com/en/5.1/ref/settings/#auth-password-validators
 
