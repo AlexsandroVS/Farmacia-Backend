@@ -85,9 +85,10 @@ WSGI_APPLICATION = 'farmavida.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
+
+
 DATABASES = {
-    'default': dj_database_url.config(default='postgresql://postgresql:postgresql@localhost/postgres', conn_max_age=600),
-    
+    'default': dj_database_url.config(default='postgresql://pharmavida_user:Ztn1S26xqatiNgUFxEEkEq314ti80r3v@dpg-ct1a66m8ii6s73fe1ns0-a.oregon-postgres.render.com/pharmavida', conn_max_age=600),
 }
 
 
