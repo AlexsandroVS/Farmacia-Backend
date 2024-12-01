@@ -2,7 +2,7 @@ from rest_framework import serializers
 from django.contrib.auth.models import User
 from django.db.models import Sum
 from .models import (
-    Persona, Empleado, Clientes, Proveedor, 
+    DetalleFacturaCliente, FacturaCliente, Persona, Empleado, Clientes, Proveedor, 
     Categoria, Producto, Medicamento, Factura,  Pedidos, DetalleFactura
 )
 from rest_framework.exceptions import ValidationError
@@ -61,8 +61,6 @@ class ClientesSerializer(serializers.ModelSerializer):
     last_name = serializers.CharField(source='user.last_name', required=False)
     email = serializers.EmailField(source='user.email', required=False)
     password = serializers.CharField(write_only=True, required=False)
-
-    # Campos adicionales de Cliente
     direccion = serializers.CharField(required=False)
     dni = serializers.CharField(required=False)
 
@@ -82,10 +80,9 @@ class ClientesSerializer(serializers.ModelSerializer):
         return value
 
     def create(self, validated_data):
-        # Extraer datos del usuario desde validated_data
+
         user_data = validated_data.pop('user')
-        
-        # Crear el usuario relacionado
+
         user = User.objects.create_user(
             username=user_data['email'],
             first_name=user_data['first_name'],
@@ -143,15 +140,16 @@ class CategoriaSerializer(serializers.ModelSerializer):
 class ProductoSerializer(serializers.ModelSerializer):
     proveedor_nombre = serializers.CharField(source='proveedor.nombre', read_only=True)
     categoria_nombre = serializers.CharField(source='categoria.nombre', read_only=True)
-    imagen_url = serializers.SerializerMethodField()  # Campo para la URL completa de la imagen
+    imagen_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Producto
         fields = [
-            'id', 'nombre', 'descripcion', 'precio', 'stock', 'fecha_vencimiento',
-            'presentacion', 'categoria', 'categoria_nombre', 'proveedor', 'proveedor_nombre',
-            'imagen', 'imagen_url'
+            'id', 'nombre', 'descripcion', 'precio_sin_igv', 'precio', 'stock', 
+            'fecha_vencimiento', 'presentacion', 'categoria', 'categoria_nombre', 
+            'proveedor', 'proveedor_nombre', 'imagen', 'imagen_url'
         ]
+        read_only_fields = ['precio']  # El campo `precio` es de solo lectura.
 
     def get_imagen_url(self, obj):
         request = self.context.get('request')
@@ -164,9 +162,10 @@ class ProductoSerializer(serializers.ModelSerializer):
         if value < date.today():
             raise serializers.ValidationError("La fecha de vencimiento no puede ser en el pasado.")
         return value
+
     def update(self, instance, validated_data):
         if 'imagen' in validated_data and not validated_data['imagen']:
-            validated_data.pop('imagen')    
+            validated_data.pop('imagen')
         return super().update(instance, validated_data)
 
 class MedicamentoSerializer(serializers.ModelSerializer):
@@ -177,56 +176,123 @@ class MedicamentoSerializer(serializers.ModelSerializer):
         fields = '__all__'
  
 class DetalleFacturaSerializer(serializers.ModelSerializer):
-    producto = serializers.StringRelatedField()  
-    subtotal = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    producto = serializers.StringRelatedField()  # Mostrar solo el nombre del producto
+    subtotal = serializers.SerializerMethodField()  # Calcular dinámicamente el subtotal
 
     class Meta:
         model = DetalleFactura
         fields = ['producto', 'cantidad', 'precio_unitario', 'subtotal']
-        
+
+    def get_subtotal(self, obj):
+        # Calcula el subtotal sin IGV
+        return obj.precio_unitario * obj.cantidad
+    
 class FacturaSerializer(serializers.ModelSerializer):
     detalles = DetalleFacturaSerializer(many=True, read_only=True)
+    
     total = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
-    igv = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)  # Asegúrate de incluir igv aquí
+    igv = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
 
     class Meta:
         model = Factura
         fields = ['id', 'empleado', 'cliente', 'fecha', 'total', 'subtotal', 'igv', 'detalles']
 
-from rest_framework import serializers
-from .models import Pedidos
+    def create(self, validated_data):
+        # Crear la factura
+        factura = super().create(validated_data)
 
+        # Actualizar el stock de los productos
+        for detalle in factura.detalles.all():
+            producto = detalle.producto
+            cantidad_vendida = detalle.cantidad
+
+            # Verificar si hay suficiente stock
+            if producto.stock < cantidad_vendida:
+                raise serializers.ValidationError(f"No hay suficiente stock para el producto {producto.nombre}.")
+
+            # Restar el stock del producto
+            producto.stock -= cantidad_vendida
+            producto.save()
+
+        return factura
 
 class PedidosSerializer(serializers.ModelSerializer):
+    producto = ProductoSerializer(read_only=True)  
+    proveedor = ProveedorSerializer(read_only=True)
+    producto_id = serializers.PrimaryKeyRelatedField(
+        queryset=Producto.objects.all(),
+        source='producto',
+        write_only=True
+    )
+    proveedor_id = serializers.PrimaryKeyRelatedField(
+        queryset=Proveedor.objects.all(),
+        source='proveedor',
+        write_only=True
+    )
+
     class Meta:
         model = Pedidos
-        fields = '__all__'
-
-    def validate(self, data):
-        """
-        Valida y recalcula subtotal, IGV y total_pedido en base a cantidad y precio_compra.
-        """
-        cantidad = data.get('cantidad', 1)
-        precio_compra = float(data.get('precio_compra', 0))
-        subtotal = cantidad * precio_compra
-        igv = subtotal * 0.18  # Asumiendo una tasa de IGV del 18%
-        total_pedido = subtotal + igv
-
-        # Actualiza los valores en los datos validados
-        data['subtotal'] = subtotal
-        data['igv'] = igv
-        data['total_pedido'] = total_pedido
-        return data
-
-    def create(self, validated_data):
-        """
-        Recalcula los valores antes de crear el pedido.
-        """
-        return super().create(validated_data)
+        fields = [
+            'id', 'fecha_pedido', 'proveedor', 'proveedor_id', 
+            'producto', 'producto_id', 'cantidad', 'precio_compra', 
+            'subtotal', 'igv', 'total_pedido', 'estado'
+        ]
 
     def update(self, instance, validated_data):
-        """
-        Recalcula los valores antes de actualizar el pedido.
-        """
-        return super().update(instance, self.validate(validated_data))
+        # Lógica personalizada si se actualiza el estado
+        estado_anterior = instance.estado
+        estado_nuevo = validated_data.get('estado', instance.estado)
 
+        if estado_anterior != 'Completado' and estado_nuevo == 'Completado':
+            producto = validated_data.get('producto', instance.producto)
+            if producto:
+                producto.stock += instance.cantidad
+                producto.save()
+
+        return super().update(instance, validated_data)
+
+class DetalleFacturaClienteSerializer(serializers.ModelSerializer):
+    producto = serializers.StringRelatedField()  # Nombre del producto
+    subtotal = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+
+    class Meta:
+        model = DetalleFacturaCliente
+        fields = ['producto', 'cantidad', 'precio_unitario', 'subtotal']
+
+    def validate(self, data):
+        cantidad = data.get('cantidad')
+        precio_unitario = data.get('precio_unitario')
+        data['subtotal'] = cantidad * precio_unitario
+        return data
+
+class FacturaClienteSerializer(serializers.ModelSerializer):
+  
+    cliente = serializers.SerializerMethodField()
+    fecha = serializers.DateTimeField(format="%d-%m-%Y %H:%M:%S")
+    detalles = DetalleFacturaClienteSerializer(many=True)
+
+    class Meta:
+        model = FacturaCliente
+        fields = ['id', 'cliente', 'fecha', 'subtotal', 'igv', 'total', 'detalles']
+
+    def get_cliente(self, obj):
+     
+        user = obj.cliente  
+        return f"{user.first_name} {user.last_name}" 
+
+    def create(self, validated_data):
+        detalles_data = validated_data.pop('detalles')      
+        
+        cliente = self.context['request'].user.clientes  
+        
+        factura = FacturaCliente.objects.create(cliente=self.context['request'].user, **validated_data) 
+        
+        for detalle_data in detalles_data:
+            DetalleFacturaCliente.objects.create(factura=factura, **detalle_data)
+        
+        factura.subtotal = sum(detalle.subtotal for detalle in factura.detalles.all())
+        factura.igv = factura.subtotal * 0.18
+        factura.total = factura.subtotal + factura.igv
+        factura.save()
+        
+        return factura

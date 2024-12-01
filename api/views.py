@@ -1,29 +1,32 @@
-# api/views.py
 from datetime import datetime
 from decimal import Decimal
 
+# Django imports
 from django.views import View
 from django.http import HttpResponse, JsonResponse
-from xhtml2pdf import pisa
-from django.template.loader import render_to_string
-from django.template.loader import get_template
+from django.template.loader import render_to_string, get_template
 from django.shortcuts import render
-from rest_framework import viewsets, status
-from rest_framework import generics
+from django.db.models import Sum, Count, ExpressionWrapper, F, DecimalField
+from django.contrib.auth.models import User
+
+# DRF imports
+from rest_framework import viewsets, status, generics
+from rest_framework.viewsets import ModelViewSet
 from rest_framework.generics import RetrieveAPIView
 from rest_framework.views import APIView
-from rest_framework.decorators import api_view
-from django.db.models import Sum, Count, FloatField, ExpressionWrapper, F, DecimalField
+from rest_framework.decorators import api_view, action
 from rest_framework.response import Response
-from django.contrib.auth.models import User
-from django.contrib.auth.hashers import make_password
 from rest_framework.permissions import AllowAny, IsAuthenticated
+
+# Otros
+from xhtml2pdf import pisa
+
 from .models import (
-    DetalleFactura, Persona, Empleado, Clientes, Proveedor,
+    DetalleFactura, DetalleFacturaCliente, FacturaCliente, Persona, Empleado, Clientes, Proveedor,
     Categoria, Producto, Medicamento, Factura, Pedidos, 
 )
 from .serializers import (
-    PersonaSerializer, EmpleadoSerializer, ClientesSerializer, ProveedorSerializer,
+    FacturaClienteSerializer, PersonaSerializer, EmpleadoSerializer, ClientesSerializer, ProveedorSerializer,
     CategoriaSerializer, ProductoSerializer, MedicamentoSerializer, FacturaSerializer,
     PedidosSerializer, UserSerializer, ProveedorTopSerializer,
 )
@@ -83,7 +86,24 @@ class CurrentUserView(APIView):
 
     def get(self, request):
         user = request.user
-        return Response({"nombre": user.username})
+
+        # Recuperar el cliente asociado al usuario
+        try:
+            cliente = Clientes.objects.get(user=user)
+        except Clientes.DoesNotExist:
+            return Response({"error": "Cliente no encontrado"}, status=status.HTTP_404_NOT_FOUND)
+
+        # Devolver más datos del cliente
+        return Response({
+            "cliente_id": cliente.id,
+            "username": user.username,
+            "email": user.email,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "direccion": cliente.direccion,
+            "dni": cliente.dni,
+        }, status=status.HTTP_200_OK)
+
     
 class ProductoPorCategoriaView(APIView):
     def get(self, request, categoria_id, *args, **kwargs):
@@ -147,53 +167,150 @@ class FacturaViewSet(viewsets.ModelViewSet):
 
         try:
             empleado = Empleado.objects.get(id=factura_data["empleado"])
-            cliente = Clientes.objects.get(id=factura_data["cliente"])
-            
-            # Crear factura inicial (sin calcular total)
+            cliente_nombre = factura_data["cliente"]  # Nombre del cliente como string
+
+            # Crear la factura inicial
             factura = Factura.objects.create(
                 empleado=empleado,
-                cliente=cliente,
+                cliente=cliente_nombre,
                 fecha=factura_data["fecha"]
             )
 
-            # Crear los detalles de la factura
+            # Crear los detalles y calcular el total
+            total = Decimal(0)
             for detalle in factura_data["detalles"]:
                 producto = Producto.objects.get(id=detalle["producto"])
+                cantidad_vendida = detalle["cantidad"]
+
+                # Calcular subtotal del detalle (precio unitario con IGV * cantidad)
+                subtotal_detalle = producto.precio * Decimal(cantidad_vendida)
+                total += subtotal_detalle
+
+                # Crear detalle de factura
                 DetalleFactura.objects.create(
                     factura=factura,
                     producto=producto,
-                    cantidad=detalle["cantidad"],
-                    precio_unitario=producto.precio,
-                    subtotal=producto.precio * Decimal(detalle["cantidad"])  # Asegúrate de usar Decimal aquí
+                    cantidad=cantidad_vendida,
+                    precio_unitario=producto.precio,  # Precio con IGV
+                    subtotal=subtotal_detalle
                 )
 
-            # Recalcular los totales de la factura (subtotal, IGV, total)
-            subtotal = sum(detalle.subtotal for detalle in factura.detalles.all())
-            igv = subtotal * Decimal(0.18)  # Convertir 0.18 a Decimal
-            total = subtotal + igv
+                # Actualizar el stock del producto
+                producto.stock -= cantidad_vendida
+                producto.save()
 
-            # Actualizar los totales en la factura
+            # Calcular subtotal, IGV y total de la factura
+            igv = total * Decimal(0.18)
+            subtotal = total - igv
+
+            # Actualizar los valores en la factura
             factura.subtotal = subtotal
             factura.igv = igv
             factura.total = total
             factura.save()
 
-            # Serializar y devolver la respuesta
+            # Serializar y devolver la factura
             serializer = FacturaSerializer(factura)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
 
         except Empleado.DoesNotExist:
             return Response({"error": "Empleado no encontrado"}, status=status.HTTP_400_BAD_REQUEST)
-        except Clientes.DoesNotExist:
-            return Response({"error": "Cliente no encontrado"}, status=status.HTTP_400_BAD_REQUEST)
         except Producto.DoesNotExist:
             return Response({"error": "Producto no encontrado"}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-       
-class PedidosViewSet(viewsets.ModelViewSet):
+
+class FacturaClienteViewSet(viewsets.ModelViewSet):
+    queryset = FacturaCliente.objects.all()
+    serializer_class = FacturaClienteSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        # Filtrar facturas del cliente autenticado
+        return FacturaCliente.objects.filter(cliente=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        # Obtener el cliente asociado al usuario
+        cliente = request.user.clientes  # Obtener el cliente relacionado al usuario
+        factura_data = request.data
+
+        try:
+            # Crear factura inicial, usando el usuario como cliente
+            factura_cliente = FacturaCliente.objects.create(
+                cliente=request.user,  # Usamos el User aquí, no Clientes
+                subtotal=0,
+                igv=0,
+                total=0
+            )
+
+            total = Decimal(0)
+            for detalle in factura_data["detalles"]:
+                producto = Producto.objects.get(id=detalle["producto"])
+                cantidad = detalle["cantidad"]
+
+                if producto.stock < cantidad:
+                    return Response(
+                        {"error": f"Stock insuficiente para el producto {producto.nombre}. Quedan {producto.stock} unidades."},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                subtotal = producto.precio * Decimal(cantidad)
+                total += subtotal
+
+                # Crear detalle
+                DetalleFacturaCliente.objects.create(
+                    factura=factura_cliente,  # Usar la factura_cliente aquí
+                    producto=producto,
+                    cantidad=cantidad,
+                    precio_unitario=producto.precio,
+                    subtotal=subtotal
+                )
+
+                # Reducir el stock
+                producto.stock -= cantidad
+                producto.save()
+
+            igv = total * Decimal(0.18)
+            subtotal_factura = total - igv
+
+            # Actualizar la factura
+            factura_cliente.subtotal = subtotal_factura
+            factura_cliente.igv = igv
+            factura_cliente.total = total
+            factura_cliente.save()
+
+            serializer = FacturaClienteSerializer(factura_cliente, context={'request': request})
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+        except Producto.DoesNotExist:
+            return Response({"error": "Producto no encontrado"}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class PedidosViewSet(ModelViewSet):
     queryset = Pedidos.objects.all()
     serializer_class = PedidosSerializer
+
+    @action(detail=True, methods=['patch'])
+    def cambiar_estado(self, request, pk=None):
+        """
+        Endpoint personalizado para cambiar el estado del pedido
+        """
+        pedido = self.get_object()
+        estado_anterior = pedido.estado
+        nuevo_estado = request.data.get('estado')
+
+        if nuevo_estado and nuevo_estado != estado_anterior:
+            pedido.estado = nuevo_estado
+            pedido.save()
+            return Response({
+                "mensaje": "Estado actualizado correctamente",
+                "estado_anterior": estado_anterior,
+                "nuevo_estado": nuevo_estado
+            })
+        return Response({
+            "error": "No se pudo actualizar el estado. Verifica los datos enviados."
+        }, status=400)
 
 def landing_page(request):
     return render(request, 'landing.html')

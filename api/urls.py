@@ -5,7 +5,7 @@ from .views import (
      PersonaViewSet, EmpleadoViewSet, ClienteViewSet, ProductoPorCategoriaView, ProveedorViewSet, 
     CategoriaViewSet, ProductoViewSet, MedicamentoViewSet, RegisterView,
     FacturaViewSet, PedidosViewSet,  CurrentUserView, generar_factura_pdf, 
-    landing_page, RegisterClienteView, MedicamentoDetailView,  proveedores_top_view, reporte_general, ReporteMensualView, descargar_reporte_general
+    landing_page, RegisterClienteView, MedicamentoDetailView,  proveedores_top_view, reporte_general, ReporteMensualView, descargar_reporte_general, FacturaClienteViewSet
 )
 
 router = DefaultRouter()
@@ -15,6 +15,7 @@ router.register(r'clientes', ClienteViewSet)
 router.register(r'proveedores', ProveedorViewSet)
 router.register(r'categorias', CategoriaViewSet)
 router.register(r'productos', ProductoViewSet)
+router.register(r'facturas-cliente', FacturaClienteViewSet, basename='factura-cliente')
 router.register(r'medicamentos', MedicamentoViewSet)
 router.register(r'facturas', FacturaViewSet, basename='factura')
 router.register(r'pedidos', PedidosViewSet)
