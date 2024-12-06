@@ -36,15 +36,11 @@ class Persona(models.Model):
         return f"{self.nombre} {self.apellidos}"
 
 class Empleado(models.Model):
-    persona = models.OneToOneField(Persona, on_delete=models.CASCADE, default=1)
+    persona = models.OneToOneField(Persona, on_delete=models.CASCADE)
+    usuario = models.OneToOneField(User, on_delete=models.CASCADE)  # Relación con el usuario
     cargo = models.CharField(max_length=100)
     fecha_contratacion = models.DateField()
     salario = models.DecimalField(max_digits=10, decimal_places=2)
-    rol = models.CharField(
-        max_length=10,
-        choices=[('admin', 'Administrador'), ('empleado', 'Empleado')],
-        default='empleado'
-    )
 
     def __str__(self):
         return self.persona.nombre
@@ -124,8 +120,6 @@ class DetalleFactura(models.Model):
         self.subtotal = self.precio_unitario * self.cantidad  # Calcular el subtotal
         super().save(*args, **kwargs)  # Guardar el detalle
 
-
-
 class Pedidos(models.Model):
     ESTADOS = [
         ('Pendiente', 'Pendiente'),
@@ -146,15 +140,12 @@ class Pedidos(models.Model):
     IGV_RATE = Decimal('0.18')  # Tasa fija del 18%
 
     def calcular_subtotal(self):
-        """Calcula el subtotal: cantidad * precio_compra."""
         return self.cantidad * self.precio_compra
 
     def calcular_igv(self):
-        """Calcula el IGV a partir del subtotal."""
         return self.subtotal * self.IGV_RATE
 
     def calcular_total(self):
-        """Calcula el total: subtotal + IGV."""
         return self.subtotal + self.igv
 
     def save(self, *args, **kwargs):
@@ -178,7 +169,6 @@ class Pedidos(models.Model):
 
         super().save(*args, **kwargs)
 
-
 class FacturaCliente(models.Model):
     cliente = models.ForeignKey(
         settings.AUTH_USER_MODEL,  # El modelo de usuario de Django
@@ -192,7 +182,6 @@ class FacturaCliente(models.Model):
 
     def __str__(self):
         return f"FacturaCliente {self.id} - Cliente: {self.cliente.username}"
-
 
 class DetalleFacturaCliente(models.Model):
     factura = models.ForeignKey(

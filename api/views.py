@@ -1,11 +1,14 @@
 from datetime import datetime
 from decimal import Decimal
+from io import BytesIO
+from reportlab.lib import colors
 
 # Django imports
 from django.views import View
+from django.utils import timezone
 from django.http import HttpResponse, JsonResponse
 from django.template.loader import render_to_string, get_template
-from django.shortcuts import render
+from django.shortcuts import get_object_or_404, render
 from django.db.models import Sum, Count, ExpressionWrapper, F, DecimalField
 from django.contrib.auth.models import User
 
@@ -14,12 +17,14 @@ from rest_framework import viewsets, status, generics
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.generics import RetrieveAPIView
 from rest_framework.views import APIView
-from rest_framework.decorators import api_view, action
+from rest_framework.decorators import api_view, action, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 
 # Otros
 from xhtml2pdf import pisa
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
 
 from .models import (
     DetalleFactura, DetalleFacturaCliente, FacturaCliente, Persona, Empleado, Clientes, Proveedor,
@@ -62,17 +67,36 @@ def proveedores_top_view(request):
         # En caso de error, devolver un mensaje
         return Response({'error': str(e)}, status=500)
 
-class ProveedoresTopView(APIView):
+from django.db.models import Sum
+from django.http import JsonResponse
+from .models import Producto, DetalleFactura
+
+class ProductosMasVendidosAPIView(APIView):
     def get(self, request, *args, **kwargs):
-        # Aquí filtras los proveedores con más pedidos
-        proveedores = Proveedor.objects.annotate(
-            total_pedidos=Count('pedidos'),
-            monto_total=Sum('pedidos__total_pedido')
-        ).order_by('-total_pedidos')[:10]  # Por ejemplo, los top 10 proveedores
+        # Obtener los productos más vendidos sumando la cantidad vendida en cada detalle de factura
+        productos_mas_vendidos = (
+            DetalleFactura.objects
+            .values('producto')
+            .annotate(total_vendido=Sum('cantidad'))  # Sumar la cantidad vendida de cada producto
+            .order_by('-total_vendido')  # Ordenar de mayor a menor por cantidad vendida
+        )
+        
+        # Obtener los productos correspondientes a los resultados
+        productos = []
+        for detalle in productos_mas_vendidos:
+            producto = Producto.objects.get(id=detalle['producto'])
+            productos.append(producto)
+        
+        # Serializar los productos
+        serializer = ProductoSerializer(productos, many=True)
+        
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
-        serializer = ProveedorTopSerializer(proveedores, many=True)
-        return Response(serializer.data)
-
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def check_superuser(request):
+    user = request.user
+    return Response({"is_superuser": user.is_superuser})
 class RegisterClienteView(APIView):
     def post(self, request, *args, **kwargs):
         serializer = ClientesSerializer(data=request.data)
@@ -104,6 +128,22 @@ class CurrentUserView(APIView):
             "dni": cliente.dni,
         }, status=status.HTTP_200_OK)
 
+class CurrentUserManagementView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+
+        # Devolver los datos básicos del usuario autenticado
+        return Response({
+            "user_id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "is_staff": user.is_staff,
+            "is_superuser": user.is_superuser,
+        }, status=status.HTTP_200_OK)
     
 class ProductoPorCategoriaView(APIView):
     def get(self, request, categoria_id, *args, **kwargs):
@@ -166,6 +206,7 @@ class FacturaViewSet(viewsets.ModelViewSet):
         factura_data = request.data
 
         try:
+            # Obtener el empleado y cliente
             empleado = Empleado.objects.get(id=factura_data["empleado"])
             cliente_nombre = factura_data["cliente"]  # Nombre del cliente como string
 
@@ -176,7 +217,7 @@ class FacturaViewSet(viewsets.ModelViewSet):
                 fecha=factura_data["fecha"]
             )
 
-            # Crear los detalles y calcular el total
+            # Crear los detalles de la factura y calcular el total
             total = Decimal(0)
             for detalle in factura_data["detalles"]:
                 producto = Producto.objects.get(id=detalle["producto"])
@@ -199,7 +240,7 @@ class FacturaViewSet(viewsets.ModelViewSet):
                 producto.stock -= cantidad_vendida
                 producto.save()
 
-            # Calcular subtotal, IGV y total de la factura
+            # Calcular IGV y total
             igv = total * Decimal(0.18)
             subtotal = total - igv
 
@@ -209,9 +250,14 @@ class FacturaViewSet(viewsets.ModelViewSet):
             factura.total = total
             factura.save()
 
-            # Serializar y devolver la factura
+            # Serializar la factura
             serializer = FacturaSerializer(factura)
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+            # Agregar el nombre del empleado en los datos de la respuesta
+            factura_data = serializer.data
+            factura_data['empleado_nombre'] = empleado.persona.nombre  # Incluyendo el nombre del empleado
+
+            return Response(factura_data, status=status.HTTP_201_CREATED)
 
         except Empleado.DoesNotExist:
             return Response({"error": "Empleado no encontrado"}, status=status.HTTP_400_BAD_REQUEST)
@@ -226,18 +272,22 @@ class FacturaClienteViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        # Filtrar facturas del cliente autenticado
-        return FacturaCliente.objects.filter(cliente=self.request.user)
+        user = self.request.user
+        if user.is_superuser:
+            # Retornar todas las facturas si es superusuario
+            return FacturaCliente.objects.all()
+        else:
+            # Retornar solo las facturas del cliente autenticado
+            return FacturaCliente.objects.filter(cliente=user)
 
     def create(self, request, *args, **kwargs):
-        # Obtener el cliente asociado al usuario
         cliente = request.user.clientes  # Obtener el cliente relacionado al usuario
         factura_data = request.data
 
         try:
-            # Crear factura inicial, usando el usuario como cliente
+            # Crear factura inicial
             factura_cliente = FacturaCliente.objects.create(
-                cliente=request.user,  # Usamos el User aquí, no Clientes
+                cliente=request.user,
                 subtotal=0,
                 igv=0,
                 total=0
@@ -259,7 +309,7 @@ class FacturaClienteViewSet(viewsets.ModelViewSet):
 
                 # Crear detalle
                 DetalleFacturaCliente.objects.create(
-                    factura=factura_cliente,  # Usar la factura_cliente aquí
+                    factura=factura_cliente,
                     producto=producto,
                     cantidad=cantidad,
                     precio_unitario=producto.precio,
@@ -287,15 +337,14 @@ class FacturaClienteViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+
 class PedidosViewSet(ModelViewSet):
     queryset = Pedidos.objects.all()
     serializer_class = PedidosSerializer
 
     @action(detail=True, methods=['patch'])
     def cambiar_estado(self, request, pk=None):
-        """
-        Endpoint personalizado para cambiar el estado del pedido
-        """
+       
         pedido = self.get_object()
         estado_anterior = pedido.estado
         nuevo_estado = request.data.get('estado')
@@ -478,6 +527,366 @@ def reporte_general(request):
     except Exception as e:
         return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+def reporte_mensual(request, year, month):
+    # Filtrar las facturas por el año y mes proporcionados
+    facturas = Factura.objects.filter(fecha__year=year, fecha__month=month)
+    
+    # Calcular el total de ventas y el IGV
+    ventas_totales = facturas.aggregate(total_ventas=Sum('total'))['total_ventas'] or 0
+    total_subtotal = facturas.aggregate(total_subtotal=Sum('subtotal'))['total_subtotal'] or 0
+    total_igv = ventas_totales - total_subtotal
+    
+    ventas_totales = round(ventas_totales, 2)
+    total_subtotal = round(total_subtotal, 2)
+    total_igv = round(total_igv, 2)
+    
+    # Obtener los detalles de las ventas
+    detalles_ventas = DetalleFactura.objects.filter(factura__in=facturas)
+    
+    # Obtener las ventas por producto con más detalles
+    ventas_por_producto = detalles_ventas.values('producto').annotate(
+        cantidad_vendida=Sum('cantidad'),
+        subtotal=Sum('subtotal')
+    )
+    
+    productos_vendidos = []
+    for venta in ventas_por_producto:
+        producto = Producto.objects.get(id=venta['producto'])
+        
+        productos_vendidos.append({
+            'producto': {
+                'id': producto.id,
+                'nombre': producto.nombre,
+                'descripcion': producto.descripcion,
+                'precio_sin_igv': str(producto.precio_sin_igv),
+                'precio': str(producto.precio),
+                'stock': producto.stock,
+                'fecha_vencimiento': producto.fecha_vencimiento.strftime('%Y-%m-%d'),
+                'presentacion': producto.presentacion,
+                'categoria': producto.categoria.id,
+                'categoria_nombre': producto.categoria.nombre,
+                'proveedor': producto.proveedor.id,
+                'proveedor_nombre': producto.proveedor.nombre,
+                'imagen': producto.imagen.url if producto.imagen else None,
+                'imagen_url': producto.imagen.url if producto.imagen else None
+            },
+            'total_vendido': venta['cantidad_vendida']
+        })
+    
+    # Filtrar los pedidos por el año y mes proporcionados
+    pedidos = Pedidos.objects.filter(fecha_pedido__year=year, fecha_pedido__month=month)
+
+    
+    # Obtener proveedores con su total de pedidos y monto facturado
+    proveedores = Proveedor.objects.all()
+    proveedores_info = []
+    for proveedor in proveedores:
+        total_pedidos_mes = pedidos.aggregate(total_pedidos=Sum('total_pedido'))['total_pedidos'] or 0.0
+        monto_total = facturas.filter(detalles__producto__proveedor=proveedor).aggregate(monto_total=Sum('total'))['monto_total'] or 0
+        
+        proveedores_info.append({
+            'id': proveedor.id,
+            'nombre': proveedor.nombre,
+            'total_pedidos_mes': total_pedidos_mes,
+            'monto_total': str(monto_total)
+        })
+    
+    # Crear el diccionario con todos los datos
+    response_data = {
+        'total_facturado': str(ventas_totales),
+        'total_igv': str(total_igv),
+        'total_subtotal': str(total_subtotal),
+        'productos_vendidos': productos_vendidos,
+        'proveedores': proveedores_info,
+        'total_pedidos_mes': total_pedidos_mes,
+        'total_pedidos_count': facturas.count(),  # Cantidad de facturas
+        'year': year,
+        'month': month,
+        'nombre_mes': datetime(year, month, 1).strftime('%B')
+    }
+    
+    return JsonResponse(response_data)
+
+def reporte_mensualpdf(request, year, month):
+    # Filtrar las facturas por el año y mes proporcionados
+    facturas = Factura.objects.filter(fecha__year=year, fecha__month=month)
+    
+    # Calcular el total de ventas y el IGV
+    ventas_totales = facturas.aggregate(total_ventas=Sum('total'))['total_ventas'] or 0
+    total_subtotal = facturas.aggregate(total_subtotal=Sum('subtotal'))['total_subtotal'] or 0
+    total_igv = ventas_totales - total_subtotal
+    
+    ventas_totales = round(ventas_totales, 2)
+    total_subtotal = round(total_subtotal, 2)
+    total_igv = round(total_igv, 2)
+    
+    # Obtener los detalles de las ventas
+    detalles_ventas = DetalleFactura.objects.filter(factura__in=facturas)
+    
+    # Obtener las ventas por producto con más detalles
+    ventas_por_producto = detalles_ventas.values('producto').annotate(
+        cantidad_vendida=Sum('cantidad'),
+        subtotal=Sum('subtotal')
+    )
+    
+    productos_vendidos = []
+    for venta in ventas_por_producto:
+        producto = Producto.objects.get(id=venta['producto'])
+        productos_vendidos.append({
+            'producto': {
+                'id': producto.id,
+                'nombre': producto.nombre,
+                'descripcion': producto.descripcion,
+                'precio_sin_igv': str(producto.precio_sin_igv),
+                'precio': str(producto.precio),
+            },
+            'total_vendido': venta['cantidad_vendida']
+        })
+    
+    # Crear el contexto que se pasará al template
+    context = {
+        'ventas_totales': ventas_totales,
+        'total_igv': total_igv,
+        'total_subtotal': total_subtotal,
+        'productos_vendidos': productos_vendidos,
+        'year': year,
+        'month': month,
+        'nombre_mes': datetime(year, month, 1).strftime('%B'),
+    }
+
+    # Renderizar el contenido HTML usando un template
+    html_content = render_to_string('reporte_mensual.html', context)
+
+    # Crear la respuesta HTTP con el tipo de contenido PDF
+    response = HttpResponse(content_type='application/pdf')
+    response['Content-Disposition'] = 'attachment; filename="reporte_mensual.pdf"'
+    
+    # Convertir el HTML a PDF
+    pisa_status = pisa.CreatePDF(html_content, dest=response)
+
+    # Verificar si se generó correctamente el PDF
+    if pisa_status.err:
+        return HttpResponse("Hubo un error al generar el PDF", status=500)
+
+    return response
+
+@api_view(['GET'])
+def reporte_general_clientes(request):
+    try:
+        # Verificar si la solicitud es para un PDF
+        if request.GET.get('format') == 'pdf':
+            # Generación del PDF
+            facturas = FacturaCliente.objects.all()
+            total_facturas = facturas.aggregate(total_facturado=Sum('total'))['total_facturado'] or 0.0
+            total_igv = facturas.aggregate(total_igv=Sum('igv'))['total_igv'] or 0.0
+            total_subtotal = facturas.aggregate(total_subtotal=Sum('subtotal'))['total_subtotal'] or 0.0
+
+            # Resumen de productos más vendidos
+            productos_vendidos = FacturaCliente.objects.values('detalles__producto').annotate(
+                total_vendido=Sum('detalles__cantidad')
+            ).order_by('-total_vendido')[:5]
+
+            productos_data = []
+            for producto_data in productos_vendidos:
+                try:
+                    producto = Producto.objects.get(id=producto_data['detalles__producto'])
+                    producto_serializer = ProductoSerializer(producto)
+                    productos_data.append({
+                        'producto': producto_serializer.data,
+                        'total_vendido': producto_data['total_vendido']
+                    })
+                except Producto.DoesNotExist:
+                    continue
+
+            # Renderizar el template para el PDF
+            html = render_to_string('reporte_general_pdf.html', {
+                'total_facturado': total_facturas,
+                'total_igv': total_igv,
+                'total_subtotal': total_subtotal,
+                'productos_vendidos': productos_data,
+            })
+
+            # Crear respuesta de PDF
+            response = HttpResponse(content_type='application/pdf')
+            response['Content-Disposition'] = 'attachment; filename="reporte_general.pdf"'
+
+            # Generar PDF con xhtml2pdf
+            pisa_status = pisa.CreatePDF(html, dest=response)
+
+            if pisa_status.err:
+                return HttpResponse("Error al generar el PDF", status=500)
+
+            return response
+        
+        # Si no se requiere PDF, retornar los datos en formato JSON
+        facturas = FacturaCliente.objects.all()
+        total_facturas = facturas.aggregate(total_facturado=Sum('total'))['total_facturado'] or 0.0
+        total_igv = facturas.aggregate(total_igv=Sum('igv'))['total_igv'] or 0.0
+        total_subtotal = facturas.aggregate(total_subtotal=Sum('subtotal'))['total_subtotal'] or 0.0
+
+        productos_vendidos = FacturaCliente.objects.values('detalles__producto').annotate(
+            total_vendido=Sum('detalles__cantidad')
+        ).order_by('-total_vendido')[:5]
+
+        productos_data = []
+        for producto_data in productos_vendidos:
+            try:
+                producto = Producto.objects.get(id=producto_data['detalles__producto'])
+                producto_serializer = ProductoSerializer(producto)
+                productos_data.append({
+                    'producto': producto_serializer.data,
+                    'total_vendido': producto_data['total_vendido']
+                })
+            except Producto.DoesNotExist:
+                continue
+
+        reporte_data = {
+            'total_facturado': total_facturas,
+            'total_igv': total_igv,
+            'total_subtotal': total_subtotal,
+            'productos_vendidos': productos_data,
+        }
+
+        return Response(reporte_data, status=status.HTTP_200_OK)
+    
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+def reporte_mensual_clientes(request, year, month):
+    # Filtrar las facturas por el año y mes proporcionados
+    facturas = FacturaCliente.objects.filter(fecha__year=year, fecha__month=month)
+    
+    # Calcular el total de ventas y el IGV
+    ventas_totales = facturas.aggregate(total_ventas=Sum('total'))['total_ventas'] or 0
+    total_subtotal = facturas.aggregate(total_subtotal=Sum('subtotal'))['total_subtotal'] or 0
+    total_igv = ventas_totales - total_subtotal
+    
+    ventas_totales = round(ventas_totales, 2)
+    total_subtotal = round(total_subtotal, 2)
+    total_igv = round(total_igv, 2)
+    
+    # Obtener los detalles de las ventas
+    detalles_ventas = DetalleFacturaCliente.objects.filter(factura__in=facturas)
+    
+    # Obtener las ventas por producto con más detalles
+    ventas_por_producto = detalles_ventas.values('producto').annotate(
+        cantidad_vendida=Sum('cantidad'),
+        subtotal=Sum('subtotal')
+    )
+    
+    productos_vendidos = []
+    for venta in ventas_por_producto:
+        producto = Producto.objects.get(id=venta['producto'])
+        
+        productos_vendidos.append({
+            'producto': {
+                'id': producto.id,
+                'nombre': producto.nombre,
+                'descripcion': producto.descripcion,
+                'precio_sin_igv': str(producto.precio_sin_igv),
+                'precio': str(producto.precio),
+                'stock': producto.stock,
+                'fecha_vencimiento': producto.fecha_vencimiento.strftime('%Y-%m-%d'),
+                'presentacion': producto.presentacion,
+                'categoria': producto.categoria.id,
+                'categoria_nombre': producto.categoria.nombre,
+                'proveedor': producto.proveedor.id,
+                'proveedor_nombre': producto.proveedor.nombre,
+                'imagen': producto.imagen.url if producto.imagen else None,
+                'imagen_url': producto.imagen.url if producto.imagen else None
+            },
+            'total_vendido': venta['cantidad_vendida']
+        })
+    
+    response_data = {
+        'total_facturado': str(ventas_totales),
+        'total_igv': str(total_igv),
+        'total_subtotal': str(total_subtotal),
+        'productos_vendidos': productos_vendidos,
+        'year': year,
+        'month': month,
+        'nombre_mes': datetime(year, month, 1).strftime('%B')
+    }
+    
+    return JsonResponse(response_data)
+
+def reporte_mensual_pdf(request, year, month):
+    try:
+        # Filtrar las facturas por el año y mes proporcionados
+        facturas = FacturaCliente.objects.filter(fecha__year=year, fecha__month=month)
+        
+        # Calcular el total de ventas y el IGV
+        ventas_totales = facturas.aggregate(total_ventas=Sum('total'))['total_ventas'] or 0
+        total_subtotal = facturas.aggregate(total_subtotal=Sum('subtotal'))['total_subtotal'] or 0
+        total_igv = ventas_totales - total_subtotal
+        
+        ventas_totales = round(ventas_totales, 2)
+        total_subtotal = round(total_subtotal, 2)
+        total_igv = round(total_igv, 2)
+        
+        # Obtener los detalles de las ventas
+        detalles_ventas = DetalleFacturaCliente.objects.filter(factura__in=facturas)
+        
+        # Obtener las ventas por producto con más detalles
+        ventas_por_producto = detalles_ventas.values('producto').annotate(
+            cantidad_vendida=Sum('cantidad'),
+            subtotal=Sum('subtotal')
+        )
+        
+        productos_vendidos = []
+        for venta in ventas_por_producto:
+            producto = Producto.objects.get(id=venta['producto'])
+            
+            productos_vendidos.append({
+                'producto': {
+                    'id': producto.id,
+                    'nombre': producto.nombre,
+                    'descripcion': producto.descripcion,
+                    'precio_sin_igv': str(producto.precio_sin_igv),
+                    'precio': str(producto.precio),
+                    'stock': producto.stock,
+                    'fecha_vencimiento': producto.fecha_vencimiento.strftime('%Y-%m-%d'),
+                    'presentacion': producto.presentacion,
+                    'categoria': producto.categoria.id,
+                    'categoria_nombre': producto.categoria.nombre,
+                    'proveedor': producto.proveedor.id,
+                    'proveedor_nombre': producto.proveedor.nombre,
+                    'imagen': producto.imagen.url if producto.imagen else None,
+                    'imagen_url': producto.imagen.url if producto.imagen else None
+                },
+                'total_vendido': venta['cantidad_vendida']
+            })
+        
+        # Crear el contexto para el template del PDF
+        context = {
+            'total_facturado': ventas_totales,
+            'total_igv': total_igv,
+            'total_subtotal': total_subtotal,
+            'productos_vendidos': productos_vendidos,
+            'year': year,
+            'month': month,
+            'nombre_mes': datetime(year, month, 1).strftime('%B'),
+            'current_date': datetime.now().strftime('%d/%m/%Y %H:%M:%S'),
+        }
+        
+        # Renderizar el template para el PDF
+        html = render_to_string('reporte_mensual_pdf.html', context)
+        
+        # Crear la respuesta PDF
+        response = HttpResponse(content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="reporte_mensual_{year}_{month}.pdf"'
+        
+        # Generar el PDF con xhtml2pdf
+        pisa_status = pisa.CreatePDF(html, dest=response)
+        
+        # Si hubo algún error en la generación del PDF, manejarlo
+        if pisa_status.err:
+            return HttpResponse("Error al generar el PDF", status=500)
+        
+        return response
+
+    except Exception as e:
+        return HttpResponse(f"Error al generar el reporte PDF: {e}", status=500)
 @api_view(['GET'])
 def descargar_reporte_general(request):
     try:
@@ -517,7 +926,7 @@ def descargar_reporte_general(request):
         total_pedidos_count = pedidos.count()
 
         # Cálculo de la ganancia neta
-        ganancia_neta = (total_facturas - total_pedidos).quantize(Decimal('0.01'))
+        ganancia_neta = (total_subtotal - total_pedidos).quantize(Decimal('0.01'))
 
         reporte_data = {
             'total_facturado': total_facturas,
@@ -546,109 +955,135 @@ def descargar_reporte_general(request):
     except Exception as e:
         return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+def generar_pdf_factura(request, factura_id):
+    try:
+        # Obtén la factura con los detalles
+        factura = Factura.objects.get(id=factura_id)
+        detalles = factura.detalles.all()
 
-class ReporteMensualView(View):
-    def get(self, request, *args, **kwargs):
-        mes = int(request.GET.get('mes', datetime.now().month))
-        anio = int(request.GET.get('anio', datetime.now().year))
-        format = request.GET.get('format', 'json')
+        # Renderiza el HTML como texto para mostrarlo en el PDF
+        html_content = render_to_string('factura_template.html', {'factura': factura, 'detalles': detalles})
 
-        facturas_mes = Factura.objects.filter(fecha__month=mes, fecha__year=anio)
-        pedidos_mes = Pedidos.objects.filter(fecha_pedido__month=mes, fecha_pedido__year=anio)
+        # Crea un buffer para almacenar el PDF generado
+        buffer = BytesIO()
 
-        productos_vendidos_pedidos = pedidos_mes.values(
-            'producto__nombre',
-            'producto__precio'
-        ).annotate(
-            total_vendido=Sum('cantidad'),
-            subtotal=ExpressionWrapper(
-                F('producto__precio') * Sum('cantidad'),
-                output_field=DecimalField()
-            ),
-            igv=ExpressionWrapper(
-                F('producto__precio') * Sum('cantidad') * 0.18,
-                output_field=DecimalField()
-            ),
-            total=ExpressionWrapper(
-                (F('producto__precio') * Sum('cantidad')) - (F('producto__precio') * Sum('cantidad') * 0.18),
-                output_field=DecimalField()
-            )
-        )
+        # Usa xhtml2pdf para convertir el HTML al PDF
+        pisa_status = pisa.CreatePDF(html_content, dest=buffer)
 
-        productos_vendidos_facturas = facturas_mes.values(
-            'detalles__producto__nombre',
-            'detalles__producto__precio'
-        ).annotate(
-            total_vendido=Sum('detalles__cantidad'),
-            subtotal=Sum(F('detalles__cantidad') * F('detalles__producto__precio'), output_field=DecimalField()),
-            igv=Sum(F('detalles__cantidad') * F('detalles__producto__precio') * 0.18, output_field=DecimalField()),
-            total=Sum(F('detalles__cantidad') * F('detalles__producto__precio') - F('detalles__cantidad') * F('detalles__producto__precio') * 0.18, output_field=DecimalField())
-        )
+        # Verifica si hubo algún error al generar el PDF
+        if pisa_status.err:
+            return HttpResponse("Error al generar el PDF", status=500)
 
-        productos_completos = list(productos_vendidos_pedidos) + list(productos_vendidos_facturas)
+        # Reajusta el buffer a la posición inicial para la respuesta HTTP
+        buffer.seek(0)
 
-        productos_dict = {}
-        for producto in productos_completos:
-            nombre = producto.get('producto__nombre') or producto.get('detalles__producto__nombre')
-            if nombre in productos_dict:
-                productos_dict[nombre]['total_vendido'] += producto['total_vendido']
-                
-                # Redondear los valores a 2 decimales
-                productos_dict[nombre]['subtotal'] = round(productos_dict[nombre]['subtotal'] + producto['subtotal'], 2)
-                productos_dict[nombre]['igv'] = round(productos_dict[nombre]['igv'] + producto['igv'], 2)
-                productos_dict[nombre]['total'] = round(productos_dict[nombre]['total'] + producto['total'], 2)
-            else:
-                productos_dict[nombre] = {
-                    'producto__nombre': nombre,
-                    'producto__precio': Decimal(str(producto['producto__precio'])),
-                    'total_vendido': producto['total_vendido'],
-                    'subtotal': round(Decimal(str(producto['subtotal'])), 2),
-                    'igv': round(Decimal(str(producto['igv'])), 2),
-                    'total': round(Decimal(str(producto['total'])), 2),
-                }
+        # Crea la respuesta HTTP con el PDF generado
+        response = HttpResponse(buffer, content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="factura_{factura.id}.pdf"'
 
-        productos_finales = list(productos_dict.values())
+        return response
 
-        total_facturado = round(facturas_mes.aggregate(Sum('total'))['total__sum'] or 0, 2)
-        total_igv = round(facturas_mes.aggregate(Sum('igv'))['igv__sum'] or 0, 2)
-        total_subtotal = round(facturas_mes.aggregate(Sum('subtotal'))['subtotal__sum'] or 0, 2)
+    except Factura.DoesNotExist:
+        return HttpResponse("Factura no encontrada", status=404)
+    except Exception as e:
+        return HttpResponse(f"Error al generar el PDF: {str(e)}", status=500)
 
-        proveedores = pedidos_mes.values(
-            'proveedor__nombre'
-        ).annotate(
-            total_pedidos=Sum('total_pedido')
-        )
+@api_view(['GET'])
+def generar_reporte_pdf_cliente(request):
+    try:
+        # Obtener las facturas y realizar los cálculos
+        facturas = FacturaCliente.objects.all()
+        total_facturado = facturas.aggregate(total_facturado=Sum('total'))['total_facturado'] or 0.0
+        total_igv = facturas.aggregate(total_igv=Sum('igv'))['total_igv'] or 0.0
+        total_subtotal = facturas.aggregate(total_subtotal=Sum('subtotal'))['total_subtotal'] or 0.0
 
-        total_pedidos = round(pedidos_mes.aggregate(total_pedidos=Sum(F('total_pedido')))['total_pedidos'] or 0, 2)
+        # Redondear los valores a 2 decimales
+        total_facturado = round(total_facturado, 2)
+        total_igv = round(total_igv, 2)
+        total_subtotal = round(total_subtotal, 2)
 
-        reporte = {
+        # Productos más vendidos
+        productos_vendidos = DetalleFacturaCliente.objects.values('producto').annotate(
+            total_vendido=Sum('cantidad')
+        ).order_by('-total_vendido')[:5]
+
+        productos_data = []
+        for producto_data in productos_vendidos:
+            try:
+                producto = Producto.objects.get(id=producto_data['producto'])
+                productos_data.append({
+                    'producto_id': producto.id,
+                    'producto_nombre': producto.nombre,
+                    'producto_precio': round(producto.precio, 2),  # Redondear el precio
+                    'total_vendido': producto_data['total_vendido'],
+                })
+            except Producto.DoesNotExist:
+                continue
+
+        # Renderizar el template para el PDF
+        html = render_to_string('reporte_general_pdf.html', {
             'total_facturado': total_facturado,
             'total_igv': total_igv,
             'total_subtotal': total_subtotal,
-            'productos_vendidos': productos_finales,
-            'proveedores': [
-                {
-                    'proveedor__nombre': prov['proveedor__nombre'],
-                    'total_pedidos': round(prov['total_pedidos'], 2)
-                }
-                for prov in proveedores
-            ],
-            'total_pedidos': total_pedidos,
-            'total_pedidos_count': pedidos_mes.count(),
+            'productos_vendidos': productos_data,
+        })
+
+        # Crear respuesta de PDF
+        response = HttpResponse(content_type='application/pdf')
+        response['Content-Disposition'] = 'attachment; filename="reporte_general_clientes.pdf"'
+
+        # Generar PDF con xhtml2pdf
+        pisa_status = pisa.CreatePDF(html, dest=response)
+
+        if pisa_status.err:
+            return HttpResponse("Error al generar el PDF", status=500)
+
+        return response
+    except Exception as e:
+        return HttpResponse(f"Error al generar el reporte: {e}", status=500)
+
+def generar_pdf_factura_cliente(request, factura_id):
+    try:
+        # Obtén la factura de cliente con los detalles
+        factura_cliente = FacturaCliente.objects.get(id=factura_id)
+        detalles = factura_cliente.detalles.all()
+
+        # Obtener los datos del cliente
+        cliente = factura_cliente.cliente
+        cliente_data = {
+            'nombre': f"{cliente.first_name} {cliente.last_name}",
+            'email': cliente.email,
+              
+            
         }
 
-        if format == 'json':
-            return JsonResponse(reporte)
+        # Renderiza el HTML con el template y los datos de la factura
+        html_content = render_to_string('factura_cliente_template.html', {
+            'factura': factura_cliente,
+            'detalles': detalles,
+            'cliente': cliente_data,
+        })
 
-        if format == 'pdf':
-            template = 'reporte_mensual.html'
-            html = render_to_string(template, {'reporte': reporte, 'mes': mes, 'anio': anio})
+        # Crear un buffer de memoria para el PDF
+        buffer = BytesIO()
+        
+        # Convertir el HTML a PDF usando xhtml2pdf
+        pisa_status = pisa.CreatePDF(html_content, dest=buffer)
 
-            response = HttpResponse(content_type='application/pdf')
-            response['Content-Disposition'] = f'attachment; filename="reporte_mensual_{mes}_{anio}.pdf"'
-            pisa_status = pisa.CreatePDF(html, dest=response)
+        if pisa_status.err:
+            return HttpResponse("Error al generar el PDF", status=500)
 
-            if pisa_status.err:
-                return HttpResponse('Error al generar el PDF', status=500)
+        # Posiciona el puntero del buffer al principio
+        buffer.seek(0)
 
-            return response
+        # Crear la respuesta HTTP con el PDF generado
+        response = HttpResponse(buffer, content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="factura_cliente_{factura_cliente.id}.pdf"'
+
+        return response
+
+    except FacturaCliente.DoesNotExist:
+        return HttpResponse("Factura no encontrada", status=404)
+    except Exception as e:
+        return HttpResponse(f"Error al generar el PDF: {str(e)}", status=500)
+    

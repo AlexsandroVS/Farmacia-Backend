@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Factura #{{ factura.id }}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f9f9f9;
+        }
+        .container {
+            width: 80%;
+            margin: 20px auto;
+            background-color: #fff;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+        }
+        .header p {
+            margin: 5px 0;
+            font-size: 14px;
+        }
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        .table th, .table td {
+            padding: 8px;
+            border: 1px solid #ddd;
+            text-align: center;
+        }
+        .table th {
+            background-color: #f2f2f2;
+        }
+        .table td {
+            font-size: 14px;
+        }
+        .total {
+            text-align: right;
+            margin-top: 30px;
+            font-size: 16px;
+            font-weight: bold;
+        }
+        .total p {
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <!-- Encabezado de la factura -->
+    <div class="header">
+        <h1>Factura #{{ factura.id }}</h1>
+        <p><strong>Empleado:</strong> {{ factura.empleado }}</p>
+        <p><strong>Cliente:</strong> {{ factura.cliente }}</p>
+        <p><strong>Fecha:</strong> {{ factura.fecha }}</p>
+    </div>
+
+    <!-- Tabla de detalles de la factura -->
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Producto</th>
+                <th>Cantidad</th>
+                <th>Precio Unitario</th>
+                <th>Subtotal</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for detalle in detalles %}
+            <tr>
+                <td>{{ detalle.producto }}</td>
+                <td>{{ detalle.cantidad }}</td>
+                <td>{{ detalle.precio_unitario }}</td>
+                <td>{{ detalle.subtotal }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- Totales de la factura -->
+    <div class="total">
+        <p><strong>Subtotal:</strong> {{ factura.subtotal }}</p>
+        <p><strong>IGV (18%):</strong> {{ factura.igv }}</p>
+        <p><strong>Total:</strong> {{ factura.total }}</p>
+    </div>
+</div>
+
+</body>
+</html>

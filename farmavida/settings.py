@@ -16,10 +16,10 @@ SIMPLE_JWT = {
 SECRET_KEY = os.environ.get('SECRET_KEY', default="dks234asd")
 
 # Configuración de depuración
-DEBUG = False  # Cambiar a False para producción
+DEBUG = True
 
 # Hosts permitidos
-ALLOWED_HOSTS = ['<tu_usuario>.pythonanywhere.com']  # Reemplaza con tu dominio de PythonAnywhere
+ALLOWED_HOSTS = ['localhost', 'http://localhost:5173/']  # Reemplaza con tu dominio de PythonAnywhere
 
 # Configuración de DRF
 REST_FRAMEWORK = {

@@ -5,18 +5,23 @@ from .models import (
     DetalleFacturaCliente, FacturaCliente, Persona, Empleado, Clientes, Proveedor, 
     Categoria, Producto, Medicamento, Factura,  Pedidos, DetalleFactura
 )
-from rest_framework.exceptions import ValidationError
-
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ('username', 'password')
-        extra_kwargs = {'password': {'write_only': True}}  
+        fields = ('username', 'password', 'is_superuser')
+        extra_kwargs = {
+            'password': {'write_only': True},
+            'is_superuser': {'default': False}, 
+        }
+
     def create(self, validated_data):
-        user = User(**validated_data)  
-        user.set_password(validated_data['password']) 
-        user.save() 
-        return user 
+        is_superuser = validated_data.get('is_superuser', False)
+
+        user = User(**validated_data)
+        user.set_password(validated_data['password'])
+        user.is_superuser = is_superuser
+        user.save()
+        return user
 
 class PersonaSerializer(serializers.ModelSerializer):
     class Meta:
@@ -25,33 +30,48 @@ class PersonaSerializer(serializers.ModelSerializer):
 
 class EmpleadoSerializer(serializers.ModelSerializer):
     persona = PersonaSerializer()
+    usuario = UserSerializer() 
 
     class Meta:
         model = Empleado
-        fields = '__all__'
+        fields = ['persona', 'cargo', 'fecha_contratacion', 'salario', 'usuario']
 
     def create(self, validated_data):
-        # Extrae los datos relacionados con Persona
         persona_data = validated_data.pop('persona')
-        # Crea una nueva instancia de Persona
+        usuario_data = validated_data.pop('usuario')
+
         persona_instance = Persona.objects.create(**persona_data)
-        # Crea el empleado asociado
-        empleado = Empleado.objects.create(persona=persona_instance, **validated_data)
+
+        # Crear el usuario con la contraseña encriptada
+        password = usuario_data.pop('password', None)
+        usuario_instance = User(**usuario_data)
+        if password:
+            usuario_instance.set_password(password)  # Encripta la contraseña
+        usuario_instance.is_superuser = True
+        usuario_instance.save()
+
+        empleado = Empleado.objects.create(persona=persona_instance, usuario=usuario_instance, **validated_data)
         return empleado
 
-    def update(self, instance, validated_data):
-        # Extrae los datos relacionados con Persona
-        persona_data = validated_data.pop('persona')
-        # Actualiza la instancia de Persona relacionada
-        persona_instance = instance.persona  # Obtén la instancia de Persona asociada
-        for attr, value in persona_data.items():
-            setattr(persona_instance, attr, value)  # Actualiza los campos de Persona
-        persona_instance.save()  # Guarda los cambios en Persona
 
-        # Actualiza los campos del empleado
+    def update(self, instance, validated_data):
+
+        persona_data = validated_data.pop('persona')
+        usuario_data = validated_data.pop('usuario')
+
+        persona_instance = instance.persona
+        for attr, value in persona_data.items():
+            setattr(persona_instance, attr, value)
+        persona_instance.save()
+
+        usuario_instance = instance.usuario
+        for attr, value in usuario_data.items():
+            setattr(usuario_instance, attr, value)
+        usuario_instance.save()
+
         for attr, value in validated_data.items():
-            setattr(instance, attr, value)  # Actualiza los campos del empleado
-        instance.save()  # Guarda los cambios en Empleado
+            setattr(instance, attr, value)
+        instance.save()
 
         return instance
 
